@@ -16,6 +16,7 @@ const FIRST_UID = '0f94eea2-6508-444a-9eac-986873d65f4b@events-38194026';
 const FIRST_TITLE = 'Промежуточные презентации НИР';
 
 const WINDOW = { start: new Date('2026-11-16T00:00:00Z'), end: new Date('2026-11-18T00:00:00Z') };
+const SOURCE = { url: EMBED_URL, timeZone: 'Europe/Moscow', options: null };
 
 type EventsResponse = { models: [{ data: { events: Record<string, unknown>[] } }] };
 const realEvent = () => loadFixture<EventsResponse>('yandex-embed/get-events.json').models[0].data.events[0]!;
@@ -115,7 +116,7 @@ describe('YandexEmbedAdapter', () => {
   it('asks the fixed Yandex host for the layer and keeps the events inside the window', async () => {
     const { adapter, requests } = adapterAnswering(loadFixture('yandex-embed/get-events.json'));
 
-    const events = await adapter.fetch(EMBED_URL, WINDOW);
+    const events = await adapter.fetch(SOURCE, WINDOW);
 
     expect(requests).toHaveLength(1);
     expect(requests[0]!.url).toBe('https://calendar.yandex.ru/embed/models?_models=get-events');
@@ -134,12 +135,12 @@ describe('YandexEmbedAdapter', () => {
   it('turns an error answer into SourceUnavailableError', async () => {
     const { adapter } = adapterAnswering(loadFixture('yandex-embed/get-events-too-long-period.json'));
 
-    await expect(adapter.fetch(EMBED_URL, WINDOW)).rejects.toBeInstanceOf(SourceUnavailableError);
+    await expect(adapter.fetch(SOURCE, WINDOW)).rejects.toBeInstanceOf(SourceUnavailableError);
   });
 
   it('turns an unexpected shape into SourceResponseInvalidError', async () => {
     const { adapter } = adapterAnswering({ models: [{ name: 'get-events', status: 'ok', data: { items: [] } }] });
 
-    await expect(adapter.fetch(EMBED_URL, WINDOW)).rejects.toBeInstanceOf(SourceResponseInvalidError);
+    await expect(adapter.fetch(SOURCE, WINDOW)).rejects.toBeInstanceOf(SourceResponseInvalidError);
   });
 });

@@ -8,6 +8,7 @@ const REQUIRED = {
   GOOGLE_CLIENT_ID: 'client-id',
   GOOGLE_CLIENT_SECRET: 'client-secret',
   GOOGLE_REDIRECT_URL: 'http://localhost:3000/auth/google/callback',
+  DEEPSEEK_API_KEY: 'deepseek-key',
 };
 
 describe('loadEnv', () => {
@@ -23,6 +24,7 @@ describe('loadEnv', () => {
       SYNC_INTERVAL_MINUTES: 15,
       SYNC_WINDOW_PAST_DAYS: 7,
       SYNC_WINDOW_FUTURE_DAYS: 60,
+      DEEPSEEK_MODEL: 'deepseek-flash',
     });
   });
 
@@ -70,6 +72,12 @@ describe('loadEnv', () => {
 
   it('validateEnv fails fast on an invalid environment', () => {
     expect(() => validateEnv({ ...REQUIRED, DATABASE_URL: 'not-a-url' })).toThrow(/DATABASE_URL/);
+  });
+
+  it('requires the DeepSeek API key', () => {
+    const { DEEPSEEK_API_KEY: _omitted, ...withoutKey } = REQUIRED;
+
+    expect(() => loadEnv(withoutKey)).toThrow(/DEEPSEEK_API_KEY/);
   });
 
   it('rejects a non-numeric Telegram user id', () => {

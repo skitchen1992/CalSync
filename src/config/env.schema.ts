@@ -40,6 +40,9 @@ export const envSchema = z.object({
   SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(5).default(15),
   SYNC_WINDOW_PAST_DAYS: z.coerce.number().int().min(0).max(30).default(7),
   SYNC_WINDOW_FUTURE_DAYS: z.coerce.number().int().min(1).max(180).default(60),
+
+  DEEPSEEK_API_KEY: z.string().min(1),
+  DEEPSEEK_MODEL: z.string().min(1).default('deepseek-flash'),
 });
 
 export type Env = z.infer<typeof envSchema>;

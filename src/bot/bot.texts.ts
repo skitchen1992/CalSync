@@ -2,6 +2,8 @@
 import { CircuitOpenError } from '@nestjs/resilience';
 import { DomainError } from '../common/errors/domain-error.js';
 import type { Source } from '../db/schema.js';
+import type { DateOrder, SheetColumn, SheetMapping } from '../db/source-options.js';
+import type { NormalizedEvent } from '../sources/source.types.js';
 import type { SourcePreview } from '../sources/sources.service.js';
 import type { SyncOutcome } from '../sync/sync.service.js';
 
@@ -14,14 +16,17 @@ export const BOT_COMMANDS = [
   { command: 'help', description: 'Как пользоваться' },
 ];
 
+const YANDEX_LINK_EXAMPLE = 'https://calendar.yandex.ru/embed/week?layer_ids=…';
+const SHEET_LINK_EXAMPLE = 'https://docs.google.com/spreadsheets/d/…';
+
 export const TEXTS = {
   help: (intervalMinutes: number) =>
     [
-      'Привет! Я CalSync — переношу события из других календарей в Google Календарь.',
+      'Привет! Я CalSync — переношу события из других календарей и таблиц с расписанием в Google Календарь.',
       '',
       '1. /connect — подключи Google Календарь.',
-      '2. Пришли ссылку на календарь. Сейчас поддерживаются встроенные календари Яндекса: ссылка вида https://calendar.yandex.ru/embed/week?layer_ids=…',
-      `3. Подтверди — я создам для него отдельный календарь в Google и буду обновлять его каждые ${intervalMinutes} мин.`,
+      `2. Пришли ссылку. Поддерживаются:\n• встроенные календари Яндекса: ${YANDEX_LINK_EXAMPLE}\n• Google Таблицы с доступом по ссылке: ${SHEET_LINK_EXAMPLE}`,
+      `3. Проверь превью и подтверди — я создам отдельный календарь в Google и буду обновлять его каждые ${intervalMinutes} мин.`,
       '',
       '/list — источники · /sync — синхронизировать сейчас · /remove — удалить · /status — состояние',
     ].join('\n'),
@@ -29,19 +34,19 @@ export const TEXTS = {
   connectLocalhostHint:
     '⚠️ CalSync сейчас запущен локально: открой ссылку на том же компьютере, где он работает. После входа Google вернёт браузер на localhost — на телефоне эта страница не откроется.',
   connectButton: 'Подключить Google',
-  notALink: 'Пришли ссылку на календарь или открой /help.',
-  checking: 'Проверяю календарь…',
+  notALink: 'Пришли ссылку на календарь или Google Таблицу — или открой /help.',
+  checking: 'Проверяю ссылку…',
   addButton: '✅ Добавить',
   cancelButton: 'Отмена',
   cancelled: 'Не добавляю.',
   syncing: 'Синхронизирую…',
-  noSources: 'Пока нет источников. Пришли ссылку на календарь.',
+  noSources: 'Пока нет источников. Пришли ссылку на календарь или Google Таблицу.',
   chooseToRemove: 'Какой источник удалить?',
   removeButton: '🗑 Удалить',
   removed: 'Источник и его календарь в Google удалены.',
   removedCalendarKept: 'Источник удалён. Календарь в Google остался: Google не подключён, удали его вручную.',
   removeCancelled: 'Ничего не удаляю.',
-  needGoogleFirst: 'Чтобы добавить календарь, сначала подключи Google: /connect',
+  needGoogleFirst: 'Чтобы добавить в Google Календарь, сначала подключи Google: /connect',
 } as const;
 
 const plural = (count: number, one: string, few: string, many: string) => {
@@ -59,6 +64,13 @@ const formatInstant = (instant: Date, timeZone: string) =>
     instant,
   );
 
+const formatDate = (date: string) =>
+  new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`));
+
+/** "23 нояб., 20:30", or "1 нояб., весь день" for an all-day event. */
+const eventWhen = (event: NormalizedEvent, timeZone: string) =>
+  'date' in event.start ? `${formatDate(event.start.date)}, весь день` : formatInstant(event.startsAt, timeZone);
+
 /** Russian message for an error that reached the user. */
 export function errorMessage(error: unknown): string {
   if (error instanceof CircuitOpenError) {
@@ -71,7 +83,19 @@ export function errorMessage(error: unknown): string {
 function messageForCode(code: string | undefined): string {
   switch (code) {
     case 'UNSUPPORTED_SOURCE_URL':
-      return 'Не узнаю эту ссылку. Сейчас поддерживаются встроенные календари Яндекса: https://calendar.yandex.ru/embed/week?layer_ids=…';
+      return `Не узнаю эту ссылку. Поддерживаются встроенные календари Яндекса (${YANDEX_LINK_EXAMPLE}) и Google Таблицы с доступом по ссылке (${SHEET_LINK_EXAMPLE}).`;
+    case 'SHEET_NOT_ACCESSIBLE':
+      return 'Не могу открыть таблицу. Проверь, что доступ открыт «всем, у кого есть ссылка», и что лист из ссылки существует.';
+    case 'SHEET_EMPTY':
+      return 'Таблица пустая: нужна строка с заголовками колонок и строки с событиями.';
+    case 'SHEET_LAYOUT_CHANGED':
+      return 'Колонки в таблице переименованы или удалены. Удали источник (/remove) и добавь таблицу заново.';
+    case 'SOURCE_OPTIONS_INVALID':
+      return 'Сохранённая разметка таблицы не читается. Удали источник (/remove) и добавь таблицу заново.';
+    case 'LLM_UNAVAILABLE':
+      return 'Не получилось разобрать таблицу: сервис распознавания сейчас недоступен. Попробуй ещё раз позже.';
+    case 'LLM_OUTPUT_INVALID':
+      return 'Не смог понять, где в таблице дата, время и название. Проверь, что у колонок есть заголовки, и попробуй ещё раз.';
     case 'SOURCE_UNAVAILABLE':
       return 'Не получилось загрузить календарь: источник недоступен. Попробую позже.';
     case 'SOURCE_RESPONSE_INVALID':
@@ -91,13 +115,50 @@ function messageForCode(code: string | undefined): string {
   }
 }
 
-export function previewText(preview: SourcePreview, googleConnected: boolean): string {
-  const { source, eventCount, sample } = preview;
-  const lines = [`Нашёл календарь «${source.name}»: ${eventsWord(eventCount)} в окне синхронизации.`];
-  if (sample.length > 0) {
-    lines.push('', 'Ближайшие:', ...sample.map((event) => `• ${formatInstant(event.startsAt, source.timeZone)} — ${event.title}`));
+const DATE_FORMATS: Record<DateOrder, string> = { DMY: 'ДД.ММ.ГГГГ', MDY: 'ММ/ДД/ГГГГ', YMD: 'ГГГГ-ММ-ДД' };
+const MAX_LISTED_ROWS = 10;
+
+const durationText = (minutes: number) => {
+  const [hours, rest] = [Math.floor(minutes / 60), minutes % 60];
+  return [hours > 0 ? `${hours} ч` : '', rest > 0 ? `${rest} мин` : ''].filter(Boolean).join(' ');
+};
+
+const columnText = (column: SheetColumn | null) => (column ? `«${column.header || `колонка ${column.index + 1}`}»` : 'нет');
+
+/** How the sheet will be read: the recognized columns and rules, for the user to check. */
+export function sheetMappingText(mapping: SheetMapping, timeZone: string, unparsedRows: readonly number[]): string[] {
+  const { date, time, title, type, link } = mapping.columns;
+  const lines = [
+    'Как читаю таблицу:',
+    `• дата — ${columnText(date)}, формат ${DATE_FORMATS[mapping.dateOrder]}`,
+    time
+      ? `• время — ${columnText(time)}; без конца («15:30 - ?») — ${durationText(mapping.defaultDurationMinutes)}`
+      : '• время — нет, все события на весь день',
+    `• название — ${columnText(title)}`,
+    `• тип — ${columnText(type)}${type ? ' → в начале названия: [Тип] Название' : ''}`,
+    `• ссылка — ${columnText(link)}${link ? ' → место встречи' : ''}`,
+    'Пустые строки и строки без даты пропускаю, строки без времени ставлю на весь день.',
+    `Часовой пояс: ${timeZone}.`,
+  ];
+  if (unparsedRows.length > 0) {
+    const listed = unparsedRows.slice(0, MAX_LISTED_ROWS).join(', ');
+    const more = unparsedRows.length > MAX_LISTED_ROWS ? ` и ещё ${unparsedRows.length - MAX_LISTED_ROWS}` : '';
+    lines.push(`⚠️ Не разобрал строки ${listed}${more} — их не будет в календаре.`);
   }
-  lines.push('', googleConnected ? 'Добавить его в Google Календарь?' : TEXTS.needGoogleFirst);
+  return lines;
+}
+
+export function previewText(preview: SourcePreview, googleConnected: boolean): string {
+  const { source, eventCount, sample, unparsedRows } = preview;
+  const isSheet = source.options?.type === 'gsheet';
+  const lines = [`Нашёл ${isSheet ? 'таблицу' : 'календарь'} «${source.name}»: ${eventsWord(eventCount)} в окне синхронизации.`];
+  if (source.options?.type === 'gsheet') {
+    lines.push('', ...sheetMappingText(source.options.mapping, source.timeZone, unparsedRows));
+  }
+  if (sample.length > 0) {
+    lines.push('', 'Ближайшие:', ...sample.map((event) => `• ${eventWhen(event, source.timeZone)} — ${event.title}`));
+  }
+  lines.push('', googleConnected ? `Добавить ${isSheet ? 'её' : 'его'} в Google Календарь?` : TEXTS.needGoogleFirst);
   return lines.join('\n');
 }
 

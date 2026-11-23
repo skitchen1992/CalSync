@@ -10,7 +10,7 @@ export default defineConfig({
     include: ['test/**/*.e2e-spec.ts'],
     testTimeout: 30_000,
     // Explicit values win over a developer's .env. Nothing here is ever connected to: the
-    // database, Google and Telegram are replaced in createTestApp().
+    // database, Google, Telegram, Google Sheets and DeepSeek are replaced in createTestApp().
     env: {
       NODE_ENV: 'test',
       LOG_LEVELS: 'fatal',
@@ -23,6 +23,7 @@ export default defineConfig({
       GOOGLE_CLIENT_SECRET: 'e2e-client-secret',
       GOOGLE_REDIRECT_URL: 'http://localhost:3000/auth/google/callback',
       SYNC_SCHEDULER_ENABLED: 'false',
+      DEEPSEEK_API_KEY: 'e2e-deepseek-key',
     },
   },
 });

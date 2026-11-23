@@ -11,6 +11,7 @@ import { CatchEverythingFilter } from './common/filters/catch-everything.filter.
 import { DomainErrorFilter } from './common/filters/domain-error.filter.js';
 import { appConfig } from './config/app.config.js';
 import { databaseConfig } from './config/database.config.js';
+import { deepseekConfig } from './config/deepseek.config.js';
 import { validateEnv } from './config/env.js';
 import { googleConfig } from './config/google.config.js';
 import { securityConfig } from './config/security.config.js';
@@ -30,7 +31,7 @@ import { SchedulerModule } from './sync/scheduler.module.js';
       cache: true,
       // Not `validationSchema`: it would copy Zod's parsed values back into process.env (see validateEnv).
       validate: validateEnv,
-      load: [appConfig, databaseConfig, securityConfig, telegramConfig, googleConfig, syncConfig],
+      load: [appConfig, databaseConfig, securityConfig, telegramConfig, googleConfig, syncConfig, deepseekConfig],
     }),
     ThrottlerModule.forRoot([{ ttl: minutes(1), limit: 60 }]),
     // One preset per external system; SDK calls run through it (see rule 106).

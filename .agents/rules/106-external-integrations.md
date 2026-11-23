@@ -117,7 +117,11 @@ constructor(@InjectHttpClient('yandex-embed') private readonly http: HttpClient)
   ```ts
   export interface SourceAdapter {
     readonly type: SourceType; // 'ics' | 'caldav' | 'yandex-embed' | 'gsheet'
-    fetch(source: Source, window: SyncWindow, signal: AbortSignal): Promise<NormalizedEvent[]>;
+    recognize(url: URL): RecognizedSource | undefined;
+    /** Once, when the source is added (a sheet's LLM column mapping); the result is previewed and stored in `sources.options`. */
+    inspect?(url: string, signal?: AbortSignal): Promise<SourceInspection>;
+    /** `source` = decrypted URL + time zone + stored options (unverified JSON: parse with Zod first). */
+    fetch(source: SourceTarget, window: SyncWindow, signal?: AbortSignal): Promise<NormalizedEvent[]>;
   }
   ```
 - `NormalizedEvent` always has a stable `uid`, `title`, `start` / `end` (or `allDay` dates),

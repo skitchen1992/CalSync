@@ -25,7 +25,9 @@
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
+    "@ai-sdk/deepseek": "^3.0.89",
     "@googleapis/calendar": "^20.2.0",
+    "@nestjs/ai": "0.0.2",
     "@nestjs/common": "^12.0.1",
     "@nestjs/config": "^12.1.1",
     "@nestjs/core": "^12.0.1",
@@ -37,6 +39,7 @@
     "@nestjs/schedule": "^12.0.4",
     "@nestjs/terminus": "^12.2.0",
     "@nestjs/throttler": "^6.8.0",
+    "ai": "^7.0.179",
     "drizzle-orm": "^0.45.4",
     "google-auth-library": "^11.3.4",
     "grammy": "^1.48.0",

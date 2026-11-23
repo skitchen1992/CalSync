@@ -21,6 +21,8 @@ export interface SourcePreview {
   eventCount: number;
   /** The next few upcoming events, for the confirmation message. */
   sample: NormalizedEvent[];
+  /** 1-based rows of a sheet that could not be read and are left out. */
+  unparsedRows: number[];
 }
 
 @Injectable()
@@ -38,20 +40,29 @@ export class SourcesService {
     @Inject(syncConfig.KEY) private readonly config: ConfigType<typeof syncConfig>,
   ) {}
 
-  /** Recognizes the URL, fetches its events once and stores the source as pending confirmation. */
+  /**
+   * Recognizes the URL, lets the adapter inspect the new source (a sheet's column mapping comes
+   * from the LLM here, once), fetches its events and stores it as pending confirmation, together
+   * with what the inspection found.
+   */
   async preview(telegramUserId: number, rawUrl: string): Promise<SourcePreview> {
     const url = rawUrl.trim();
     const recognized = this.adapters.recognize(url);
+    const adapter = this.adapters.get(recognized.type);
     const now = this.clock.now();
-    const events = await this.adapters.get(recognized.type).fetch(url, this.syncWindow());
+    const inspection = adapter.inspect ? await adapter.inspect(url) : undefined;
+    const timeZone = inspection?.timeZone ?? recognized.timeZone;
+    const options = inspection?.options ?? null;
+    const events = await adapter.fetch({ url, timeZone, options }, this.syncWindow());
 
     await this.repository.deletePendingCreatedBefore(new Date(now.getTime() - PENDING_TTL_MS));
     const source = await this.repository.insertPending({
       telegramUserId,
       type: recognized.type,
-      name: recognized.name,
+      name: inspection?.name ?? recognized.name,
       urlEncrypted: this.crypto.encrypt(url),
-      timeZone: recognized.timeZone,
+      timeZone,
+      options,
       syncIntervalMinutes: this.config.intervalMinutes,
     });
     this.logger.log('Source previewed', { sourceId: source.id, type: source.type, eventCount: events.length });
@@ -60,6 +71,7 @@ export class SourcesService {
       source,
       eventCount: events.length,
       sample: events.filter((event) => event.startsAt >= now).slice(0, PREVIEW_SAMPLE_SIZE),
+      unparsedRows: inspection?.unparsedRows ?? [],
     };
   }
 
@@ -144,7 +156,9 @@ export class SourcesService {
   }
 
   async fetchEvents(source: Source, window: SyncWindow, signal?: AbortSignal): Promise<NormalizedEvent[]> {
-    return this.adapters.get(source.type).fetch(this.crypto.decrypt(source.urlEncrypted), window, signal);
+    return this.adapters
+      .get(source.type)
+      .fetch({ url: this.crypto.decrypt(source.urlEncrypted), timeZone: source.timeZone, options: source.options }, window, signal);
   }
 
   async recordSyncSuccess(sourceId: string, syncedAt: Date, nextSyncAt: Date): Promise<void> {

@@ -1,4 +1,5 @@
-import { bigint, index, integer, pgSequence, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigint, index, integer, jsonb, pgSequence, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import type { SourceOptions } from './source-options.js';
 
 // Drizzle tables. drizzle-kit reads this file (see drizzle.config.ts) and the runtime passes it to
 // drizzle() as `schema`. Column names are camelCase here and snake_case in SQL (casing option).
@@ -33,7 +34,7 @@ export const oauthStates = pgTable('oauth_states', {
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
 
-export const SOURCE_TYPES = ['yandex-embed'] as const;
+export const SOURCE_TYPES = ['yandex-embed', 'gsheet'] as const;
 export const SOURCE_STATUSES = ['pending', 'active'] as const;
 export const SYNC_STATUSES = ['ok', 'failed'] as const;
 
@@ -48,6 +49,11 @@ export const sources = pgTable(
     urlEncrypted: text().notNull(),
     /** IANA zone the source's local times are in. */
     timeZone: text().notNull(),
+    /**
+     * What the adapter needs to read the source, worked out when it was added (a sheet's column
+     * mapping); null for sources that need nothing. Parse with `sourceOptionsSchema` before use.
+     */
+    options: jsonb().$type<SourceOptions>(),
     /** `pending` until the user confirms the preview in the bot. */
     status: text({ enum: SOURCE_STATUSES }).notNull().default('pending'),
     googleCalendarId: text(),
