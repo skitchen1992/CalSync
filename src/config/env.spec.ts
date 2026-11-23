@@ -1,4 +1,4 @@
-import { loadEnv } from './env.js';
+import { loadEnv, validateEnv } from './env.js';
 
 const REQUIRED = {
   DATABASE_URL: 'postgres://calsync:calsync@localhost:5433/calsync',
@@ -14,7 +14,7 @@ describe('loadEnv', () => {
   it('applies defaults when only required variables are set', () => {
     expect(loadEnv(REQUIRED)).toMatchObject({
       NODE_ENV: 'development',
-      PORT: 3000,
+      PORT: 3100,
       LOG_FORMAT: 'pretty',
       LOG_LEVELS: ['fatal', 'error', 'warn', 'log'],
       TELEGRAM_ALLOWED_USER_IDS: [1001],
@@ -59,6 +59,17 @@ describe('loadEnv', () => {
     expect(() => loadEnv({ ...REQUIRED, ENCRYPTION_KEY: Buffer.alloc(16).toString('base64') })).toThrow(
       /ENCRYPTION_KEY/,
     );
+  });
+
+  it('validateEnv keeps raw strings, so lists survive the trip through process.env', () => {
+    const raw = { ...REQUIRED, TELEGRAM_ALLOWED_USER_IDS: '1001,1002' };
+
+    expect(validateEnv(raw)).toBe(raw);
+    expect(validateEnv(raw)['TELEGRAM_ALLOWED_USER_IDS']).toBe('1001,1002');
+  });
+
+  it('validateEnv fails fast on an invalid environment', () => {
+    expect(() => validateEnv({ ...REQUIRED, DATABASE_URL: 'not-a-url' })).toThrow(/DATABASE_URL/);
   });
 
   it('rejects a non-numeric Telegram user id', () => {

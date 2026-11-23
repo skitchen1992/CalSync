@@ -65,13 +65,19 @@ export type Env = z.infer<typeof envSchema>;
 ConfigModule.forRoot({
   isGlobal: true,
   cache: true,
-  validationSchema: envSchema, // v12 accepts any Standard Schema; invalid env aborts bootstrap
+  validate: validateEnv, // envSchema.parse for fail-fast; returns the raw values unchanged
   load: [appConfig, databaseConfig, googleConfig, telegramConfig, deepseekConfig, syncConfig],
 }),
 ```
 - `ConfigModule.forRoot()` is called exactly once, in `AppModule`.
-- In v12, library-specific validation options go under `validationOptions.libraryOptions`. Zod needs
-  none.
+- Use `validate: validateEnv`, **not** `validationSchema: envSchema`. ConfigModule copies whatever
+  validation returns into `process.env`, which only holds strings. With `validationSchema`, Zod's
+  parsed values (arrays, numbers, booleans) replace the raw strings: lists such as
+  `TELEGRAM_ALLOWED_USER_IDS` vanish, and the namespaces then fail to re-parse them. `validateEnv`
+  validates with the same schema and returns the raw values.
+- `.env` is loaded while `NestFactory.create()` builds the app, **not** when `AppModule` is
+  imported. Nothing may read the environment before that. `main.ts` therefore creates the app with
+  `bufferLogs: true` and builds the logger from the `app` namespace afterwards (see 100).
 
 ## Namespaces
 Each namespace maps the parsed env into a small, typed, domain-named object:

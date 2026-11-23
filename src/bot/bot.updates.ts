@@ -4,6 +4,7 @@ import { type Bot, type Context, InlineKeyboard } from 'grammy';
 import { GoogleAuthService } from '../auth/google-auth.service.js';
 import { DomainError } from '../common/errors/domain-error.js';
 import { toError } from '../common/errors/to-error.js';
+import { googleConfig } from '../config/google.config.js';
 import { syncConfig } from '../config/sync.config.js';
 import { telegramConfig } from '../config/telegram.config.js';
 import { TELEGRAM_BOT } from '../integrations/telegram/telegram.constants.js';
@@ -38,16 +39,20 @@ const CALLBACK = {
 export class BotUpdates implements OnModuleInit {
   private readonly logger = new Logger(BotUpdates.name);
   private readonly allowedUserIds: ReadonlySet<number>;
+  /** While running locally, the OAuth redirect only works in a browser on the same machine. */
+  private readonly googleRedirectsToLocalhost: boolean;
 
   constructor(
     @Inject(TELEGRAM_BOT) private readonly bot: Bot,
     @Inject(telegramConfig.KEY) telegram: ConfigType<typeof telegramConfig>,
     @Inject(syncConfig.KEY) private readonly sync: ConfigType<typeof syncConfig>,
+    @Inject(googleConfig.KEY) google: ConfigType<typeof googleConfig>,
     private readonly sources: SourcesService,
     private readonly syncService: SyncService,
     private readonly googleAuth: GoogleAuthService,
   ) {
     this.allowedUserIds = new Set(telegram.allowedUserIds);
+    this.googleRedirectsToLocalhost = ['localhost', '127.0.0.1', '[::1]'].includes(new URL(google.redirectUrl).hostname);
   }
 
   onModuleInit(): void {
@@ -98,7 +103,8 @@ export class BotUpdates implements OnModuleInit {
 
   private async connect(ctx: Context): Promise<void> {
     const url = await this.googleAuth.startAuthorization(ctx.from!.id);
-    await ctx.reply(TEXTS.connect, { reply_markup: new InlineKeyboard().url(TEXTS.connectButton, url) });
+    const text = this.googleRedirectsToLocalhost ? `${TEXTS.connect}\n\n${TEXTS.connectLocalhostHint}` : TEXTS.connect;
+    await ctx.reply(text, { reply_markup: new InlineKeyboard().url(TEXTS.connectButton, url) });
   }
 
   private async addSource(ctx: Context, text: string): Promise<void> {

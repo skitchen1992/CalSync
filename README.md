@@ -40,7 +40,7 @@
 2. **OAuth consent screen**: тип External, добавь scope `.../auth/calendar.app.created`, а свой
    Google-аккаунт — в **Test users**.
 3. **Credentials → Create OAuth client ID → Web application** с authorized redirect URI
-   `http://localhost:3000/auth/google/callback` → `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+   `http://localhost:3100/auth/google/callback` → `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
 
 Пока экран согласия в режиме **Testing**, Google отзывает refresh-токены через 7 дней. Бот сообщит,
 что доступ отозван, и `/connect` восстановит его. После публикации приложения ограничение снимается.
@@ -54,7 +54,7 @@ docker compose up -d        # PostgreSQL на localhost:5433
 npm run db:migrate
 npm run start:dev
 ```
-Открой бота в Telegram и отправь `/start`. `GET http://localhost:3000/health` показывает состояние
+Открой бота в Telegram и отправь `/start`. `GET http://localhost:3100/health` показывает состояние
 базы данных.
 
 ## Скрипты

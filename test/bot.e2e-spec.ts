@@ -107,6 +107,8 @@ describe('Telegram bot', () => {
     await bot.handleUpdate(textUpdate(USER_ID, '/connect'));
 
     expect(buttons()).toEqual([expect.objectContaining({ url: expect.stringMatching(/^https:\/\/accounts\.example\.com\//) })]);
+    // The e2e redirect URL is on localhost, so the bot warns that the link must be opened there.
+    expect(replies().at(-1)).toContain('на том же компьютере');
   });
 
   it('previews a Yandex link, adds it on confirmation and syncs it', async () => {

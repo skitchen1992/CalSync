@@ -6,5 +6,7 @@ export const appConfig = registerAs('app', () => {
   return {
     nodeEnv: env.NODE_ENV,
     port: env.PORT,
+    logFormat: env.LOG_FORMAT,
+    logLevels: env.LOG_LEVELS,
   };
 });

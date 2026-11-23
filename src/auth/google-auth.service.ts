@@ -48,6 +48,7 @@ export class GoogleAuthService {
   async completeAuthorization(input: OAuthCallbackInput): Promise<OAuthCallbackOutcome> {
     const telegramUserId = await this.states.consume(hashState(input.state), this.clock.now());
     if (telegramUserId === undefined) {
+      this.logger.warn('OAuth callback rejected: state is unknown, expired or already used');
       throw new InvalidOAuthStateError('OAuth state is unknown, expired or already used');
     }
 

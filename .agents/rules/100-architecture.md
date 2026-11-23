@@ -142,20 +142,21 @@ import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import { AppModule } from './app.module.js';
 import { appConfig } from './config/app.config.js';
-import { loadEnv } from './config/env.js';
 
 async function bootstrap() {
-  const env = loadEnv(); // fails fast on an invalid environment, before anything starts
-  const app = await NestFactory.create(AppModule, {
-    logger: new ConsoleLogger({ json: env.LOG_FORMAT === 'json', logLevels: env.LOG_LEVELS }),
-  });
+  // ConfigModule loads and validates .env while the app is created, so the configured logger can
+  // only be built afterwards; bootstrap logs are buffered until then.
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const config = app.get<ConfigType<typeof appConfig>>(appConfig.KEY);
+  app.useLogger(new ConsoleLogger({ json: config.logFormat === 'json', logLevels: config.logLevels }));
   app.use(helmet());
   app.enableShutdownHooks();
-  const { port } = app.get<ConfigType<typeof appConfig>>(appConfig.KEY);
-  await app.listen(port);
+  await app.listen(config.port);
 }
 await bootstrap();
 ```
+Never read the environment in `main.ts` before `NestFactory.create()`: `.env` is not loaded yet
+(see 101).
 
 ## ESM & TypeScript Conventions
 - The project is ESM (`"type": "module"`, `module`/`moduleResolution: nodenext`). Relative imports

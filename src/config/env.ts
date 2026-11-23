@@ -12,3 +12,14 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   }
   return result.data;
 }
+
+/**
+ * ConfigModule `validate` hook. Fails fast on an invalid environment, but returns the raw values:
+ * ConfigModule copies what this returns into process.env, which only holds strings, so returning
+ * the parsed values would drop lists like TELEGRAM_ALLOWED_USER_IDS. The registerAs namespaces
+ * parse process.env themselves with loadEnv().
+ */
+export function validateEnv(raw: Record<string, unknown>): Record<string, unknown> {
+  loadEnv(raw as NodeJS.ProcessEnv);
+  return raw;
+}
