@@ -1,0 +1,21 @@
+# Local PostgreSQL for development: `docker compose up -d`.
+# Credentials are local-only and match .env.example.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: calsync
+      POSTGRES_PASSWORD: calsync
+      POSTGRES_DB: calsync
+    ports:
+      - '5433:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U calsync -d calsync']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
