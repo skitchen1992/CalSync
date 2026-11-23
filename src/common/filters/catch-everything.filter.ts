@@ -15,6 +15,8 @@ export class CatchEverythingFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const { httpAdapter } = this.httpAdapterHost;
     const ctx = host.switchToHttp();
+    // A route may have set another type (e.g. text/plain on the OAuth callback); errors are JSON.
+    httpAdapter.setHeader(ctx.getResponse(), 'Content-Type', 'application/json; charset=utf-8');
 
     if (exception instanceof HttpException) {
       const statusCode = exception.getStatus();

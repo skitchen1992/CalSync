@@ -26,6 +26,7 @@ export class DomainErrorFilter implements ExceptionFilter<DomainError> {
       this.logger.warn('Domain error answered with a server status', { code: error.code, statusCode });
     }
 
+    httpAdapter.setHeader(ctx.getResponse(), 'Content-Type', 'application/json; charset=utf-8');
     httpAdapter.reply(ctx.getResponse(), { statusCode, code: error.code, message: error.message }, statusCode);
   }
 }

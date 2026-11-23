@@ -57,8 +57,13 @@ Every e2e spec boots the app through `createTestApp()` (`test/support/create-tes
 - exposes `pglite`, so a spec can close it to simulate a database outage (see
   `test/health.e2e-spec.ts`).
 
-When integrations exist, extend `createTestApp()` once instead of overriding them ad hoc per spec:
-- Google and Telegram API clients and the `Clock`: `.overrideProvider(...)` with fakes;
+It also replaces the integrations with fakes from `test/fakes/` and exposes them on the returned
+object: `GoogleOAuthClient`, `GoogleCalendarClient` (an in-memory calendar), `Notifier` (records
+messages) and `YandexEmbedAdapter` (events set by the spec). The bot is tested by feeding updates to
+the real grammY `Bot` with `bot.handleUpdate()`, with a Bot API transformer that records calls
+instead of sending them (`test/bot.e2e-spec.ts`). Shared setup (connecting Google, test events)
+lives in `test/support/scenario.ts`. Add new fakes there once, instead of overriding ad hoc per spec:
+- further API clients and the `Clock`: `.overrideProvider(...)` with fakes;
 - LLM models: wrap the builder in `overrideModels(builder, { default: fakeModel })` from
   `@nestjs/ai/testing`, and expose `fakeModel` so specs can queue answers (`fakeModel.reply(...)`) and
   inspect `fakeModel.calls`;

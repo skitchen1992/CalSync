@@ -1,0 +1,26 @@
+{
+  "models": [
+    {
+      "name": "get-events",
+      "status": "error",
+      "error": {
+        "name": "validate",
+        "errorCollection": {
+          "errors": {
+            "too long period": "Parameter requirements are not met"
+          },
+          "errorMessages": []
+        },
+        "status": null,
+        "code": "CALENDAR_ERROR"
+      }
+    }
+  ],
+  "timestamp": 1795438624207,
+  "cookieRenew": false,
+  "version": {
+    "duffman": "7.4.0",
+    "maya": "223.0.0"
+  },
+  "reqid": "1795438624167082-4561830047376470215"
+}
