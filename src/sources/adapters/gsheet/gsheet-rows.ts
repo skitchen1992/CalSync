@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { addMinutesToLocal, nextDate, zonedTimeToInstant } from '../../../common/utils/zoned-time.js';
 import type { DateOrder, SheetColumn, SheetMapping } from '../../../db/source-options.js';
-import type { NormalizedEvent } from '../../source.types.js';
+import type { NormalizedEvent, SkippedEntry, SourceSnapshot } from '../../source.types.js';
 import { SheetLayoutChangedError } from '../../sources.errors.js';
 
 // Deterministic reading of schedule rows with a confirmed mapping. No LLM here: a regular sync
@@ -31,11 +31,8 @@ export interface SheetColumns {
   link?: number;
 }
 
-export interface SheetReadResult {
-  events: NormalizedEvent[];
-  /** 1-based sheet rows that have a date but could not be read; they are left out. */
-  unparsedRows: number[];
-}
+/** Longest text of a skipped row shown to the user. */
+const MAX_SKIPPED_TEXT = 80;
 
 const pad = (value: number) => String(value).padStart(2, '0');
 
@@ -228,10 +225,29 @@ function readRow(
   };
 }
 
-/** Reads every data row (those below the header row) into events, in sheet order. */
-export function readSheet(table: readonly string[][], mapping: SheetMapping, timeZone: string): SheetReadResult {
+/**
+ * A row that has a date cell but could not be read. Its key comes from the mapped cells, so the
+ * same broken row is recognized after rows above it are added or removed.
+ */
+function skippedRow(row: readonly string[], columns: SheetColumns, index: number): SkippedEntry {
+  const cells = [columns.date, columns.time, columns.type, columns.title].map((column) =>
+    column === undefined ? '' : singleLine(row[column] ?? ''),
+  );
+  const text = cells.filter(Boolean).join(' · ');
+  return {
+    key: createHash('sha256').update(JSON.stringify(cells)).digest('base64url').slice(0, 16),
+    row: index + 1,
+    text: text.length > MAX_SKIPPED_TEXT ? `${text.slice(0, MAX_SKIPPED_TEXT)}…` : text,
+  };
+}
+
+/**
+ * Reads every data row (those below the header row): events in sheet order, and the dated rows
+ * whose date or time could not be read.
+ */
+export function readSheet(table: readonly string[][], mapping: SheetMapping, timeZone: string): SourceSnapshot {
   const columns = resolveColumns(table, mapping);
-  const result: SheetReadResult = { events: [], unparsedRows: [] };
+  const result: SourceSnapshot = { events: [], skipped: [] };
   table.forEach((row, index) => {
     if (index <= mapping.headerRow) {
       return;
@@ -240,7 +256,7 @@ export function readSheet(table: readonly string[][], mapping: SheetMapping, tim
     if (outcome.kind === 'event') {
       result.events.push(outcome.event);
     } else if (outcome.kind === 'unparsed') {
-      result.unparsedRows.push(index + 1);
+      result.skipped.push(skippedRow(row, columns, index));
     }
   });
   return result;

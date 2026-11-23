@@ -8,7 +8,7 @@ import { syncConfig } from '../config/sync.config.js';
 import type { Source } from '../db/schema.js';
 import { GoogleCalendarClient } from '../integrations/google/google-calendar.client.js';
 import { SourceAdapterRegistry } from './source-adapter.registry.js';
-import type { NormalizedEvent, SyncWindow } from './source.types.js';
+import type { NormalizedEvent, SkippedEntry, SourceSnapshot, SyncWindow } from './source.types.js';
 import { SourceNotFoundError } from './sources.errors.js';
 import { SourcesRepository } from './sources.repository.js';
 import { computeSyncWindow } from './sync-window.js';
@@ -21,8 +21,8 @@ export interface SourcePreview {
   eventCount: number;
   /** The next few upcoming events, for the confirmation message. */
   sample: NormalizedEvent[];
-  /** 1-based rows of a sheet that could not be read and are left out. */
-  unparsedRows: number[];
+  /** Entries (sheet rows) that could not be read and are left out. */
+  skipped: SkippedEntry[];
 }
 
 @Injectable()
@@ -43,7 +43,7 @@ export class SourcesService {
   /**
    * Recognizes the URL, lets the adapter inspect the new source (a sheet's column mapping comes
    * from the LLM here, once), fetches its events and stores it as pending confirmation, together
-   * with what the inspection found.
+   * with what the inspection found. Unreadable entries shown in the preview count as reported.
    */
   async preview(telegramUserId: number, rawUrl: string): Promise<SourcePreview> {
     const url = rawUrl.trim();
@@ -53,7 +53,7 @@ export class SourcesService {
     const inspection = adapter.inspect ? await adapter.inspect(url) : undefined;
     const timeZone = inspection?.timeZone ?? recognized.timeZone;
     const options = inspection?.options ?? null;
-    const events = await adapter.fetch({ url, timeZone, options }, this.syncWindow());
+    const { events, skipped } = await adapter.fetch({ url, timeZone, options }, this.syncWindow());
 
     await this.repository.deletePendingCreatedBefore(new Date(now.getTime() - PENDING_TTL_MS));
     const source = await this.repository.insertPending({
@@ -63,6 +63,7 @@ export class SourcesService {
       urlEncrypted: this.crypto.encrypt(url),
       timeZone,
       options,
+      reportedSkippedKeys: skipped.map((entry) => entry.key),
       syncIntervalMinutes: this.config.intervalMinutes,
     });
     this.logger.log('Source previewed', { sourceId: source.id, type: source.type, eventCount: events.length });
@@ -71,7 +72,7 @@ export class SourcesService {
       source,
       eventCount: events.length,
       sample: events.filter((event) => event.startsAt >= now).slice(0, PREVIEW_SAMPLE_SIZE),
-      unparsedRows: inspection?.unparsedRows ?? [],
+      skipped,
     };
   }
 
@@ -155,14 +156,15 @@ export class SourcesService {
     return source?.status === 'active' ? source : undefined;
   }
 
-  async fetchEvents(source: Source, window: SyncWindow, signal?: AbortSignal): Promise<NormalizedEvent[]> {
+  async fetchSnapshot(source: Source, window: SyncWindow, signal?: AbortSignal): Promise<SourceSnapshot> {
     return this.adapters
       .get(source.type)
       .fetch({ url: this.crypto.decrypt(source.urlEncrypted), timeZone: source.timeZone, options: source.options }, window, signal);
   }
 
-  async recordSyncSuccess(sourceId: string, syncedAt: Date, nextSyncAt: Date): Promise<void> {
-    await this.repository.recordSuccess(sourceId, syncedAt, nextSyncAt);
+  /** Also replaces the reported unreadable entries with the ones this sync found. */
+  async recordSyncSuccess(sourceId: string, syncedAt: Date, nextSyncAt: Date, reportedSkippedKeys: string[]): Promise<void> {
+    await this.repository.recordSuccess(sourceId, syncedAt, nextSyncAt, reportedSkippedKeys);
   }
 
   async recordSyncFailure(sourceId: string, error: string, nextSyncAt: Date): Promise<void> {

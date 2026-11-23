@@ -1,0 +1,1 @@
+ALTER TABLE "sources" ADD COLUMN "reported_skipped_keys" text[] DEFAULT '{}'::text[] NOT NULL;

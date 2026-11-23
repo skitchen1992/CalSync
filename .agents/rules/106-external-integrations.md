@@ -120,8 +120,12 @@ constructor(@InjectHttpClient('yandex-embed') private readonly http: HttpClient)
     recognize(url: URL): RecognizedSource | undefined;
     /** Once, when the source is added (a sheet's LLM column mapping); the result is previewed and stored in `sources.options`. */
     inspect?(url: string, signal?: AbortSignal): Promise<SourceInspection>;
-    /** `source` = decrypted URL + time zone + stored options (unverified JSON: parse with Zod first). */
-    fetch(source: SourceTarget, window: SyncWindow, signal?: AbortSignal): Promise<NormalizedEvent[]>;
+    /**
+     * `source` = decrypted URL + time zone + stored options (unverified JSON: parse with Zod first).
+     * Returns the events in the window and the entries it could not read (`skipped`, each with a
+     * content-based key); the sync tells the user about new skipped entries once.
+     */
+    fetch(source: SourceTarget, window: SyncWindow, signal?: AbortSignal): Promise<SourceSnapshot>;
   }
   ```
 - `NormalizedEvent` always has a stable `uid`, `title`, `start` / `end` (or `allDay` dates),

@@ -1,6 +1,6 @@
 import { SourcesService } from '../src/sources/sources.service.js';
 import { createTestApp, type TestApp } from './support/create-test-app.js';
-import { TEAM_SHEET_LLM_ANSWER, TEAM_SHEET_MAPPING, TEAM_SHEET_TITLE, TEAM_SHEET_URL } from './support/gsheet.js';
+import { TEAM_SHEET_LLM_ANSWER, TEAM_SHEET_MAPPING, TEAM_SHEET_TITLE, TEAM_SHEET_URL, teamSheetCsv } from './support/gsheet.js';
 import { connectGoogle, USER_ID } from './support/scenario.js';
 import { attachBot, type BotHarness, callbackUpdate, textUpdate } from './support/telegram.js';
 
@@ -110,5 +110,65 @@ describe('Google Sheets through the bot', () => {
     );
     expect(testApp.llm.calls).toHaveLength(2);
     expect(addButton()).toBeUndefined();
+  });
+
+  describe('rows it cannot read', () => {
+    const BROKEN_DATE = '32.13.2026,10:00,МГУ АКСЕЛЬ,Встреча с трекером,';
+    const BROKEN_TIME = '30.11.2026,после обеда,Созвон командный,,';
+    const withRows = (...rows: string[]) => [teamSheetCsv(), ...rows].join('\r\n');
+    /** Messages about unreadable rows (connecting Google sends one of its own). */
+    const notifications = () => testApp.notifier.textsFor(USER_ID).filter((text) => text.includes('не смог разобрать'));
+
+    const addSheet = async () => {
+      await connectGoogle(testApp);
+      testApp.llm.reply({ object: TEAM_SHEET_LLM_ANSWER });
+      await send(TEAM_SHEET_URL);
+      await press(addButton()!.callback_data!);
+    };
+
+    it('tells the user once about a row it could not read, and then only about new ones', async () => {
+      await addSheet();
+      expect(notifications()).toEqual([]);
+
+      testApp.sheets.csv = withRows(BROKEN_DATE);
+      await send('/sync');
+      await send('/sync');
+
+      expect(notifications()).toEqual([
+        [
+          `⚠️ «${TEAM_SHEET_TITLE}»: не смог разобрать 1 строку — её нет в календаре.`,
+          '• строка 192: 32.13.2026 · 10:00 · МГУ АКСЕЛЬ · Встреча с трекером',
+          'Исправь дату или время в таблице — при следующей синхронизации события появятся.',
+        ].join('\n'),
+      ]);
+
+      testApp.sheets.csv = withRows(BROKEN_DATE, BROKEN_TIME);
+      await send('/sync');
+
+      expect(notifications()).toHaveLength(2);
+      expect(notifications()[1]).toContain('• строка 193: 30.11.2026 · после обеда · Созвон командный');
+      expect(notifications()[1]).not.toContain('строка 192');
+    });
+
+    it('reports a fixed row again when it breaks again', async () => {
+      await addSheet();
+      testApp.sheets.csv = withRows(BROKEN_DATE);
+      await send('/sync');
+      testApp.sheets.csv = teamSheetCsv();
+      await send('/sync');
+      testApp.sheets.csv = withRows(BROKEN_DATE);
+      await send('/sync');
+
+      expect(notifications()).toHaveLength(2);
+    });
+
+    it('does not repeat rows the preview already showed', async () => {
+      testApp.sheets.csv = withRows(BROKEN_DATE);
+
+      await addSheet();
+
+      expect(harness.replies()).toContainEqual(expect.stringContaining('⚠️ Не разобрал строки 192 — их не будет в календаре.'));
+      expect(notifications()).toEqual([]);
+    });
   });
 });

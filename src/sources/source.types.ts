@@ -15,6 +15,24 @@ export interface NormalizedEvent {
   startsAt: Date;
 }
 
+/** Something in the source the adapter could not read and left out (a sheet row with a broken date). */
+export interface SkippedEntry {
+  /** Stable while the entry's content is unchanged, wherever it moves; used to report it only once. */
+  key: string;
+  /** 1-based position for the user (the sheet row). */
+  row: number;
+  /** The text that could not be read, as the user wrote it ("32.13.2026 · 10:00 · Лекция"). */
+  text: string;
+}
+
+/** What one fetch of a source returns. */
+export interface SourceSnapshot {
+  /** The events inside the sync window. */
+  events: NormalizedEvent[];
+  /** Entries left out because they could not be read (anywhere in the source, not only the window). */
+  skipped: SkippedEntry[];
+}
+
 /** The time range a sync mirrors: [start, end). */
 export interface SyncWindow {
   start: Date;
@@ -41,8 +59,6 @@ export interface SourceInspection {
   name: string;
   timeZone: string;
   options: SourceOptions;
-  /** 1-based rows the adapter could not read with these options, for the preview. */
-  unparsedRows: number[];
 }
 
 /**
@@ -57,5 +73,5 @@ export interface SourceAdapter {
    * sheet's column mapping). The result is previewed and stored; `fetch()` never repeats it.
    */
   inspect?(url: string, signal?: AbortSignal): Promise<SourceInspection>;
-  fetch(source: SourceTarget, window: SyncWindow, signal?: AbortSignal): Promise<NormalizedEvent[]>;
+  fetch(source: SourceTarget, window: SyncWindow, signal?: AbortSignal): Promise<SourceSnapshot>;
 }

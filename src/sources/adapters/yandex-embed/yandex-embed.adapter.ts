@@ -1,6 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { HttpClient, HttpClientError, InjectHttpClient } from '@nestjs/http-client';
-import type { NormalizedEvent, RecognizedSource, SourceAdapter, SourceTarget, SyncWindow } from '../../source.types.js';
+import type {
+  NormalizedEvent,
+  RecognizedSource,
+  SourceAdapter,
+  SourceSnapshot,
+  SourceTarget,
+  SyncWindow,
+} from '../../source.types.js';
 import { SourceResponseInvalidError, SourceUnavailableError, UnsupportedSourceUrlError } from '../../sources.errors.js';
 import { toNormalizedEvent } from './yandex-embed.mapper.js';
 import { yandexGetEventsResponseSchema } from './yandex-embed.schemas.js';
@@ -41,7 +48,7 @@ export class YandexEmbedAdapter implements SourceAdapter {
     return params && { type: this.type, name: params.layerName, timeZone: params.timeZone };
   }
 
-  async fetch(source: SourceTarget, window: SyncWindow, signal?: AbortSignal): Promise<NormalizedEvent[]> {
+  async fetch(source: SourceTarget, window: SyncWindow, signal?: AbortSignal): Promise<SourceSnapshot> {
     const params = parseYandexEmbedUrl(new URL(source.url));
     if (!params) {
       throw new UnsupportedSourceUrlError('Not a Yandex Calendar embed link');
@@ -55,7 +62,8 @@ export class YandexEmbedAdapter implements SourceAdapter {
         }
       }
     }
-    return [...byUid.values()].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+    // Yandex returns structured events: nothing is ever left unread.
+    return { events: [...byUid.values()].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime()), skipped: [] };
   }
 
   private async fetchRange(

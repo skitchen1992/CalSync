@@ -1,5 +1,5 @@
 import { parseYandexEmbedUrl } from '../../src/sources/adapters/yandex-embed/yandex-embed.url.js';
-import type { NormalizedEvent, RecognizedSource, SourceAdapter } from '../../src/sources/source.types.js';
+import type { NormalizedEvent, RecognizedSource, SourceAdapter, SourceSnapshot } from '../../src/sources/source.types.js';
 
 /**
  * Stands in for YandexEmbedAdapter: recognizes the same links, but serves events set by the spec.
@@ -19,10 +19,10 @@ export class FakeSourceAdapter implements SourceAdapter {
     return params && { type: this.type, name: params.layerName, timeZone: params.timeZone };
   }
 
-  async fetch(): Promise<NormalizedEvent[]> {
+  async fetch(): Promise<SourceSnapshot> {
     this.fetchCount++;
     await this.gate;
     if (this.failure) throw this.failure;
-    return this.events.map((event) => ({ ...event }));
+    return { events: this.events.map((event) => ({ ...event })), skipped: [] };
   }
 }

@@ -1,9 +1,10 @@
 // Everything the bot says (Russian, see AGENTS.md) and the pure formatters around it.
 import { CircuitOpenError } from '@nestjs/resilience';
 import { DomainError } from '../common/errors/domain-error.js';
+import { plural } from '../common/utils/plural.js';
 import type { Source } from '../db/schema.js';
 import type { DateOrder, SheetColumn, SheetMapping } from '../db/source-options.js';
-import type { NormalizedEvent } from '../sources/source.types.js';
+import type { NormalizedEvent, SkippedEntry } from '../sources/source.types.js';
 import type { SourcePreview } from '../sources/sources.service.js';
 import type { SyncOutcome } from '../sync/sync.service.js';
 
@@ -48,14 +49,6 @@ export const TEXTS = {
   removeCancelled: 'Ничего не удаляю.',
   needGoogleFirst: 'Чтобы добавить в Google Календарь, сначала подключи Google: /connect',
 } as const;
-
-const plural = (count: number, one: string, few: string, many: string) => {
-  const mod10 = count % 10;
-  const mod100 = count % 100;
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
-  return many;
-};
 
 const eventsWord = (count: number) => `${count} ${plural(count, 'событие', 'события', 'событий')}`;
 
@@ -126,7 +119,7 @@ const durationText = (minutes: number) => {
 const columnText = (column: SheetColumn | null) => (column ? `«${column.header || `колонка ${column.index + 1}`}»` : 'нет');
 
 /** How the sheet will be read: the recognized columns and rules, for the user to check. */
-export function sheetMappingText(mapping: SheetMapping, timeZone: string, unparsedRows: readonly number[]): string[] {
+export function sheetMappingText(mapping: SheetMapping, timeZone: string, skipped: readonly SkippedEntry[]): string[] {
   const { date, time, title, type, link } = mapping.columns;
   const lines = [
     'Как читаю таблицу:',
@@ -140,20 +133,23 @@ export function sheetMappingText(mapping: SheetMapping, timeZone: string, unpars
     'Пустые строки и строки без даты пропускаю, строки без времени ставлю на весь день.',
     `Часовой пояс: ${timeZone}.`,
   ];
-  if (unparsedRows.length > 0) {
-    const listed = unparsedRows.slice(0, MAX_LISTED_ROWS).join(', ');
-    const more = unparsedRows.length > MAX_LISTED_ROWS ? ` и ещё ${unparsedRows.length - MAX_LISTED_ROWS}` : '';
+  if (skipped.length > 0) {
+    const listed = skipped
+      .slice(0, MAX_LISTED_ROWS)
+      .map((entry) => entry.row)
+      .join(', ');
+    const more = skipped.length > MAX_LISTED_ROWS ? ` и ещё ${skipped.length - MAX_LISTED_ROWS}` : '';
     lines.push(`⚠️ Не разобрал строки ${listed}${more} — их не будет в календаре.`);
   }
   return lines;
 }
 
 export function previewText(preview: SourcePreview, googleConnected: boolean): string {
-  const { source, eventCount, sample, unparsedRows } = preview;
+  const { source, eventCount, sample, skipped } = preview;
   const isSheet = source.options?.type === 'gsheet';
   const lines = [`Нашёл ${isSheet ? 'таблицу' : 'календарь'} «${source.name}»: ${eventsWord(eventCount)} в окне синхронизации.`];
   if (source.options?.type === 'gsheet') {
-    lines.push('', ...sheetMappingText(source.options.mapping, source.timeZone, unparsedRows));
+    lines.push('', ...sheetMappingText(source.options.mapping, source.timeZone, skipped));
   }
   if (sample.length > 0) {
     lines.push('', 'Ближайшие:', ...sample.map((event) => `• ${eventWhen(event, source.timeZone)} — ${event.title}`));

@@ -116,7 +116,9 @@ describe('YandexEmbedAdapter', () => {
   it('asks the fixed Yandex host for the layer and keeps the events inside the window', async () => {
     const { adapter, requests } = adapterAnswering(loadFixture('yandex-embed/get-events.json'));
 
-    const events = await adapter.fetch(SOURCE, WINDOW);
+    const { events, skipped } = await adapter.fetch(SOURCE, WINDOW);
+
+    expect(skipped).toEqual([]);
 
     expect(requests).toHaveLength(1);
     expect(requests[0]!.url).toBe('https://calendar.yandex.ru/embed/models?_models=get-events');

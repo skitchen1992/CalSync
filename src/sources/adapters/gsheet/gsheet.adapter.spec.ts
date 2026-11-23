@@ -33,10 +33,15 @@ const csvResponse = (body = teamSheetCsv()) =>
     },
   });
 
-/** Answers like Google: the export on docs.google.com hands over to a signed content URL. */
-function adapterWith(answer: (url: string) => Response = (url) =>
-  url.startsWith('https://docs.google.com/') ? new Response(null, { status: 307, headers: { location: CONTENT_URL } }) : csvResponse(),
-) {
+/** Answers like Google: the export on docs.google.com hands over to a signed content URL with `csv`. */
+const googleAnswering =
+  (csv = teamSheetCsv()) =>
+  (url: string) =>
+    url.startsWith('https://docs.google.com/')
+      ? new Response(null, { status: 307, headers: { location: CONTENT_URL } })
+      : csvResponse(csv);
+
+function adapterWith(answer: (url: string) => Response = googleAnswering()) {
   const requests: string[] = [];
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = new Request(input).url;
@@ -90,9 +95,10 @@ describe('GoogleSheetAdapter', () => {
   it('exports the sheet from docs.google.com by id and gid and follows the hand-over to the content host', async () => {
     const { adapter, requests, mappings } = adapterWith();
 
-    const events = await adapter.fetch(SOURCE, WINDOW);
+    const { events, skipped } = await adapter.fetch(SOURCE, WINDOW);
 
     expect(requests).toEqual([EXPORT_URL, CONTENT_URL]);
+    expect(skipped).toEqual([]);
     expect(mappings.propose).not.toHaveBeenCalled();
     expect(events.map((event) => `${event.startsAt.toISOString()} ${event.title}`)).toEqual([
       '2026-11-16T17:30:00.000Z [Созвон командный с Ксенией] ДокПоток созвон с Ксенией',
@@ -116,7 +122,7 @@ describe('GoogleSheetAdapter', () => {
 
     const inspection = await adapter.inspect(TEAM_SHEET_URL);
 
-    expect(inspection).toEqual({ name: TEAM_SHEET_TITLE, timeZone: ZONE, options: OPTIONS, unparsedRows: [] });
+    expect(inspection).toEqual({ name: TEAM_SHEET_TITLE, timeZone: ZONE, options: OPTIONS });
     expect(mappings.propose).toHaveBeenCalledTimes(1);
   });
 
@@ -125,9 +131,17 @@ describe('GoogleSheetAdapter', () => {
     const stored = { ...OPTIONS, mapping: { ...TEAM_SHEET_MAPPING, rowsWithoutTime: 'skip' } } as SourceOptions;
     const december = { start: new Date('2026-12-01T00:00:00Z'), end: new Date('2027-01-01T00:00:00Z') };
 
-    const events = await adapter.fetch({ ...SOURCE, options: stored }, december);
+    const { events } = await adapter.fetch({ ...SOURCE, options: stored }, december);
 
     expect(events.at(-1)).toMatchObject({ start: { date: '2026-12-31' }, end: { date: '2027-01-01' } });
+  });
+
+  it('reports unreadable rows even when they are outside the window', async () => {
+    const { adapter } = adapterWith(googleAnswering(`${teamSheetCsv()}\r\n01.09.2026,когда-нибудь,МГУ АКСЕЛЬ,Старая встреча,`));
+
+    const { skipped } = await adapter.fetch(SOURCE, WINDOW);
+
+    expect(skipped).toEqual([{ key: expect.any(String), row: 192, text: '01.09.2026 · когда-нибудь · МГУ АКСЕЛЬ · Старая встреча' }]);
   });
 
   it('treats a hand-over to the sign-in page as a sheet that is not shared', async () => {

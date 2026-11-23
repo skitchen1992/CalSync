@@ -5,16 +5,19 @@ import { CircuitOpenError } from '@nestjs/resilience';
 import { GoogleAuthService } from '../auth/google-auth.service.js';
 import { Clock } from '../common/clock/clock.js';
 import { DomainError } from '../common/errors/domain-error.js';
+import { Notifier } from '../common/notifier/notifier.js';
 import { toError } from '../common/errors/to-error.js';
 import { mapWithConcurrency } from '../common/utils/map-with-concurrency.js';
 import { syncConfig } from '../config/sync.config.js';
 import type { NewEventLink, Source } from '../db/schema.js';
 import { GoogleCalendarClient } from '../integrations/google/google-calendar.client.js';
 import { GoogleAuthRevokedError } from '../integrations/google/google.errors.js';
+import type { SkippedEntry } from '../sources/source.types.js';
 import { SourcesService } from '../sources/sources.service.js';
 import { googleEventIdFor, toCalendarEvent } from './calendar-event.js';
 import { EventLinksRepository } from './event-links.repository.js';
 import { SuspiciousSnapshotError } from './sync.errors.js';
+import { SYNC_MESSAGES } from './sync.messages.js';
 import { planSync } from './sync-plan.js';
 import { nextSyncAfterFailure, nextSyncAfterSuccess } from './sync-schedule.js';
 
@@ -50,6 +53,7 @@ export class SyncService {
     private readonly google: GoogleCalendarClient,
     private readonly locks: Locks,
     private readonly clock: Clock,
+    private readonly notifier: Notifier,
     @Inject(syncConfig.KEY) private readonly config: ConfigType<typeof syncConfig>,
   ) {}
 
@@ -108,9 +112,15 @@ export class SyncService {
 
     const startedAt = this.clock.now();
     try {
-      const counts = await this.mirror(source, source.googleCalendarId, signal);
+      const { counts, skipped } = await this.mirror(source, source.googleCalendarId, signal);
+      await this.reportUnreadable(source, skipped);
       const finishedAt = this.clock.now();
-      await this.sources.recordSyncSuccess(source.id, finishedAt, nextSyncAfterSuccess(finishedAt, source.syncIntervalMinutes));
+      await this.sources.recordSyncSuccess(
+        source.id,
+        finishedAt,
+        nextSyncAfterSuccess(finishedAt, source.syncIntervalMinutes),
+        skipped.map((entry) => entry.key),
+      );
       this.logger.log('Source synced', { sourceId: source.id, ...counts, durationMs: finishedAt.getTime() - startedAt.getTime() });
       return { status: 'synced', sourceId: source.id, sourceName: source.name, ...counts };
     } catch (caught) {
@@ -143,11 +153,30 @@ export class SyncService {
     }
   }
 
+  /**
+   * Tells the user about unreadable entries (sheet rows) that were not reported before: the same
+   * broken row is reported once, not on every sync. A row fixed and broken again is new again,
+   * because the reported keys are replaced by the current ones after each sync.
+   */
+  private async reportUnreadable(source: Source, skipped: readonly SkippedEntry[]): Promise<void> {
+    const reported = new Set(source.reportedSkippedKeys);
+    const fresh = skipped.filter((entry) => !reported.has(entry.key));
+    if (fresh.length === 0) {
+      return;
+    }
+    this.logger.warn('Unreadable source entries reported to the user', { sourceId: source.id, count: fresh.length });
+    await this.notifier.notify(source.telegramUserId, SYNC_MESSAGES.unreadableRows(source.name, fresh));
+  }
+
   /** Makes the source's Google calendar match the source inside the sync window. */
-  private async mirror(source: Source, calendarId: string, signal: AbortSignal): Promise<SyncCounts> {
+  private async mirror(
+    source: Source,
+    calendarId: string,
+    signal: AbortSignal,
+  ): Promise<{ counts: SyncCounts; skipped: SkippedEntry[] }> {
     const refreshToken = await this.googleAuth.getRefreshToken(source.telegramUserId);
     const window = this.sources.syncWindow();
-    const events = await this.sources.fetchEvents(source, window, signal);
+    const { events, skipped } = await this.sources.fetchSnapshot(source, window, signal);
     const plan = planSync(events, await this.links.findBySource(source.id), window, (uid) =>
       googleEventIdFor(source.id, uid),
     );
@@ -190,7 +219,10 @@ export class SyncService {
       await this.links.deleteMany(source.id, deleted);
     }
 
-    return { created: plan.created, updated: plan.updated, deleted: deleted.length, unchanged: plan.unchanged };
+    return {
+      counts: { created: plan.created, updated: plan.updated, deleted: deleted.length, unchanged: plan.unchanged },
+      skipped,
+    };
   }
 
   /** Mirrored event count, for the bot's source list. */

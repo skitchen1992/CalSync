@@ -64,7 +64,7 @@ export class SourcesRepository {
       .limit(limit);
   }
 
-  async recordSuccess(id: string, syncedAt: Date, nextSyncAt: Date): Promise<void> {
+  async recordSuccess(id: string, syncedAt: Date, nextSyncAt: Date, reportedSkippedKeys: string[]): Promise<void> {
     await this.db
       .update(sources)
       .set({
@@ -73,6 +73,7 @@ export class SourcesRepository {
         lastSyncError: null,
         consecutiveFailures: 0,
         nextSyncAt,
+        reportedSkippedKeys,
       })
       .where(eq(sources.id, id));
   }

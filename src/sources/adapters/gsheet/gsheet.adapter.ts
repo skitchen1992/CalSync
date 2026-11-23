@@ -1,11 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { HttpClient, HttpClientError, type HttpResponse, InjectHttpClient } from '@nestjs/http-client';
 import { type GoogleSheetOptions, sourceOptionsSchema } from '../../../db/source-options.js';
 import type {
-  NormalizedEvent,
   RecognizedSource,
   SourceAdapter,
   SourceInspection,
+  SourceSnapshot,
   SourceTarget,
   SyncWindow,
 } from '../../source.types.js';
@@ -63,7 +63,6 @@ export function spreadsheetTitle(contentDisposition: string | null): string | un
 @Injectable()
 export class GoogleSheetAdapter implements SourceAdapter {
   readonly type = 'gsheet';
-  private readonly logger = new Logger(GoogleSheetAdapter.name);
 
   constructor(
     @InjectHttpClient(GOOGLE_SHEETS_HTTP) private readonly http: HttpClient,
@@ -78,24 +77,20 @@ export class GoogleSheetAdapter implements SourceAdapter {
   async inspect(url: string, signal?: AbortSignal): Promise<SourceInspection> {
     const sheet = await this.download(this.sheetRef(url), signal);
     const { mapping, timeZone } = await this.mappings.propose(sheet.table, signal);
-    return {
-      name: sheet.title ?? UNTITLED,
-      timeZone,
-      options: { type: 'gsheet', version: 1, mapping },
-      unparsedRows: readSheet(sheet.table, mapping, timeZone).unparsedRows,
-    };
+    return { name: sheet.title ?? UNTITLED, timeZone, options: { type: 'gsheet', version: 1, mapping } };
   }
 
-  async fetch(source: SourceTarget, window: SyncWindow, signal?: AbortSignal): Promise<NormalizedEvent[]> {
+  /** The events inside the window, and every row (inside the window or not) that could not be read. */
+  async fetch(source: SourceTarget, window: SyncWindow, signal?: AbortSignal): Promise<SourceSnapshot> {
     const { mapping } = this.parseOptions(source.options);
     const sheet = await this.download(this.sheetRef(source.url), signal);
-    const { events, unparsedRows } = readSheet(sheet.table, mapping, source.timeZone);
-    if (unparsedRows.length > 0) {
-      this.logger.debug('Sheet rows left out', { count: unparsedRows.length });
-    }
-    return events
-      .filter((event) => event.startsAt >= window.start && event.startsAt < window.end)
-      .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+    const { events, skipped } = readSheet(sheet.table, mapping, source.timeZone);
+    return {
+      events: events
+        .filter((event) => event.startsAt >= window.start && event.startsAt < window.end)
+        .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime()),
+      skipped,
+    };
   }
 
   private sheetRef(url: string): GoogleSheetRef {

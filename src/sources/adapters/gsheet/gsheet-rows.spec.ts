@@ -136,10 +136,10 @@ describe('sheetEventUid', () => {
 
 describe('readSheet', () => {
   it('reads every dated row of the team sheet and skips the week separators', () => {
-    const { events, unparsedRows } = read();
+    const { events, skipped } = read();
 
     expect(events).toHaveLength(FIXTURE_EVENT_COUNT);
-    expect(unparsedRows).toEqual([]);
+    expect(skipped).toEqual([]);
     expect(new Set(events.map((event) => event.uid)).size).toBe(FIXTURE_EVENT_COUNT);
   });
 
@@ -207,11 +207,23 @@ describe('readSheet', () => {
     expect(read(withoutSeparators).events.map((event) => event.uid)).toEqual(read(rows).events.map((event) => event.uid));
   });
 
-  it('reports rows whose date or time cannot be read', () => {
+  it('reports rows whose date or time cannot be read, with the text the user wrote', () => {
     const rows = table();
-    rows.push(['32.13.2026', '10:00', 'Тип', 'Плохая дата', ''], ['01.12.2026', 'утром', 'Тип', 'Плохое время', '']);
+    rows.push(['32.13.2026', '10:00', 'Тип', 'Плохая дата', ''], ['01.12.2026', 'утром', 'Тип', 'Плохое\nвремя', '']);
 
-    expect(read(rows).unparsedRows).toEqual([192, 193]);
+    expect(read(rows).skipped).toEqual([
+      { key: expect.any(String), row: 192, text: '32.13.2026 · 10:00 · Тип · Плохая дата' },
+      { key: expect.any(String), row: 193, text: '01.12.2026 · утром · Тип · Плохое время' },
+    ]);
+  });
+
+  it('keeps the key of a broken row when rows above it change, and changes it when the row is edited', () => {
+    const broken = ['32.13.2026', '10:00', 'Тип', 'Плохая дата', ''];
+    const keyOf = (rows: string[][]) => read(rows).skipped[0]!.key;
+    const original = [...table(), broken];
+
+    expect(keyOf([...table().slice(0, 50), ...table().slice(60), broken])).toBe(keyOf(original));
+    expect(keyOf([...table(), ['32.13.2026', '11:00', 'Тип', 'Плохая дата', '']])).not.toBe(keyOf(original));
   });
 
   it('follows a column that moved', () => {

@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { bigint, index, integer, jsonb, pgSequence, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import type { SourceOptions } from './source-options.js';
 
@@ -63,6 +64,14 @@ export const sources = pgTable(
     lastSyncStatus: text({ enum: SYNC_STATUSES }),
     lastSyncError: text(),
     consecutiveFailures: integer().notNull().default(0),
+    /**
+     * Keys of the source's unreadable entries (sheet rows) the user has already been told about,
+     * so a sync only reports new ones. Replaced by the current set after every sync.
+     */
+    reportedSkippedKeys: text()
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     ...timestamps,
   },
   (table) => [
