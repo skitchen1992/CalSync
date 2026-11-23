@@ -1,5 +1,6 @@
 # CalSync on one server: PostgreSQL, a one-off migration step and the app (see README.md here).
-#   cd deploy && docker compose up -d --build
+# The app and migrate images are the ones CI pushes to ghcr.io (deploy/update.sh pulls them);
+# `docker compose up -d --build` builds the same images on the server instead.
 # Nothing is published to the internet: the bot uses Telegram long polling, and the app port is
 # bound to the server's localhost only (Google sign-in goes through an SSH tunnel).
 name: calsync-prod
@@ -27,6 +28,7 @@ services:
 
   # Applies pending Drizzle migrations, then exits; the app starts only after it succeeded.
   migrate:
+    image: ghcr.io/skitchen1992/calsync-migrate:main
     build: { context: .., target: build }
     command: ['npx', 'drizzle-kit', 'migrate']
     environment:
@@ -37,6 +39,7 @@ services:
     logging: *logging
 
   app:
+    image: ghcr.io/skitchen1992/calsync:main
     build: { context: .., target: runtime }
     restart: unless-stopped
     # tini as PID 1: forwards SIGTERM so the app's shutdown hooks run on `docker compose down`.

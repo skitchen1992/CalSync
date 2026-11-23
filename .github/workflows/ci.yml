@@ -1,0 +1,132 @@
+# Checks every push and pull request. A push to main that passes them, and changes more than the
+# docs, is built into images on ghcr.io and deployed to the server (deploy/README.md,
+# "Автообновление из GitHub"). Actions → CI → Run workflow redeploys main by hand.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_IMAGE: ghcr.io/skitchen1992/calsync
+  MIGRATE_IMAGE: ghcr.io/skitchen1992/calsync-migrate
+
+jobs:
+  check:
+    name: Typecheck, lint, tests
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: check-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+
+  images:
+    name: Build images
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      deploy: ${{ steps.changes.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Skip pushes that only change docs
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # Manual runs, a first push and a force push (no usable "before" commit) always deploy.
+          if [ "$EVENT" != push ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA" | grep -vE '(\.md$|^\.agents/)' || true)
+          echo "Changed outside the docs:"
+          echo "${changed:-(nothing)}"
+          if [ -n "$changed" ]; then echo "deploy=true"; else echo "deploy=false"; fi >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+        if: steps.changes.outputs.deploy == 'true'
+
+      - uses: docker/login-action@v4
+        if: steps.changes.outputs.deploy == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the app image
+        if: steps.changes.outputs.deploy == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: runtime
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.APP_IMAGE }}:main,${{ env.APP_IMAGE }}:${{ github.sha }}
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=runtime
+          cache-to: type=gha,mode=max,scope=runtime
+
+      - name: Build and push the migrate image
+        if: steps.changes.outputs.deploy == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: build
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.MIGRATE_IMAGE }}:main,${{ env.MIGRATE_IMAGE }}:${{ github.sha }}
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=build
+          cache-to: type=gha,mode=max,scope=build
+
+  deploy:
+    name: Deploy to the server
+    needs: images
+    if: needs.images.outputs.deploy == 'true'
+    runs-on: ubuntu-24.04
+    environment: production
+    # One deploy at a time; a newer one waits instead of cancelling the running one.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Update the server over SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$KNOWN_HOSTS" ] || [ -z "$HOST" ]; then
+            echo "::warning::DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS or DEPLOY_HOST is not set: the images are built, the server is not updated (deploy/README.md)."
+            exit 0
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # The server binds this key to deploy/update.sh (forced command); the commit is only logged.
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 "root@${HOST}" "$GITHUB_SHA"

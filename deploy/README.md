@@ -114,14 +114,68 @@ ssh -N -L 3100:localhost:3100 root@<IP-сервера>
 
 ## Обновление
 
+Обычно сервер обновляет GitHub сам (следующий раздел). Вручную, теми же шагами:
+
 ```bash
-cd /opt/calsync
-git pull
-cd deploy
-docker compose up -d --build
+/opt/calsync/deploy/update.sh
 ```
 
-Новые миграции применятся автоматически: контейнер `migrate` запускается перед приложением.
+Скрипт подтягивает `main` из git, скачивает готовые образы из ghcr.io, перезапускает
+CalSync и ждёт, пока `/health` ответит. Новые миграции применятся автоматически: контейнер
+`migrate` запускается перед приложением.
+
+Если ghcr.io недоступен, можно собрать образы прямо на сервере (медленно, на одном ядре
+около 15 минут):
+
+```bash
+cd /opt/calsync && git pull && cd deploy && docker compose up -d --build
+```
+
+## Автообновление из GitHub
+
+Файл `.github/workflows/ci.yml`. На каждый push и pull request GitHub запускает
+`npm run check`. Если это push в `main`, проверки зелёные и изменилось что-то кроме
+документации (`*.md`, `.agents/`), дальше выполняется деплой:
+
+1. GitHub собирает образы `ghcr.io/skitchen1992/calsync` и `calsync-migrate` с тегами
+   `main` и хешем коммита.
+2. GitHub заходит на сервер по SSH отдельным ключом деплоя. На сервере этот ключ привязан к
+   одной команде (`restrict,command="/opt/calsync/deploy/update.sh"` в
+   `/root/.ssh/authorized_keys`): им нельзя открыть оболочку или выполнить что-то другое.
+3. `update.sh` обновляет сервер, как описано выше. Если `/health` не ответил, запуск в
+   GitHub становится красным, а в его логе видны последние строки логов приложения.
+
+Деплои идут по одному. Запустить деплой без нового коммита: Actions → CI → Run workflow.
+
+**Настройка (один раз).** В репозитории: Settings → Secrets and variables → Actions →
+New repository secret:
+
+| Секрет | Значение |
+|---|---|
+| `DEPLOY_SSH_KEY` | приватный ключ деплоя целиком, от `-----BEGIN` до `-----END` |
+| `DEPLOY_HOST` | IP сервера |
+| `DEPLOY_KNOWN_HOSTS` | строка из `ssh-keyscan -t ed25519 <IP-сервера>` |
+
+Пока секретов нет, GitHub собирает образы, а шаг деплоя пропускает с предупреждением.
+
+Пакеты в ghcr.io после первой публикации приватные. Сервер скачивает образы без логина,
+поэтому их нужно один раз сделать публичными: профиль GitHub → Packages → `calsync` →
+Package settings → Change visibility → Public (и так же для `calsync-migrate`). В образах
+нет секретов: `.env` в сборку не попадает (`.dockerignore`).
+
+**Новый ключ деплоя** (если старый утёк или потерян): на своём компьютере
+
+```bash
+ssh-keygen -t ed25519 -N "" -C calsync-github-deploy -f calsync_deploy
+```
+
+На сервере в `/root/.ssh/authorized_keys` замени строку с `calsync-github-deploy` на
+`restrict,command="/opt/calsync/deploy/update.sh" ` + содержимое `calsync_deploy.pub`.
+Содержимое `calsync_deploy` (приватную часть) положи в секрет `DEPLOY_SSH_KEY`, оба файла
+удали.
+
+**Откат.** `git revert <плохой коммит>` и push в `main`: GitHub соберёт и выкатит прежний
+код. Миграции базы откатом не отменяются: такую миграцию исправляют новой.
 
 ## Бэкапы
 

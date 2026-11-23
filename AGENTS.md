@@ -39,6 +39,10 @@ Detailed coding rules for this repo live in `.agents/rules/*.md` (plain Markdown
 - Production: `Dockerfile` + `deploy/compose.yaml` (PostgreSQL, a `migrate` step, the app; no
   public ports). Server steps in `deploy/README.md`; `deploy/check-access.sh` checks that the
   server can reach Telegram, Google, DeepSeek and the registries.
+- CI/CD: `.github/workflows/ci.yml` runs `npm run check` on every push and pull request. A push
+  to `main` that passes and changes more than docs builds the images to ghcr.io and runs
+  `deploy/update.sh` on the server over SSH (a deploy key restricted to that one command).
+  Merging to `main` therefore deploys: keep `main` releasable.
 
 **Before creating or modifying files, read the rule files whose glob patterns match the files you
 are working on.** Read `100-architecture.md` first for any non-trivial change in `src/`.
