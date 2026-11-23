@@ -24,9 +24,16 @@ const usageLogger = new Logger('LlmUsage');
         const pricing = DEEPSEEK_PRICING[config.model];
         return {
           models: {
-            default: { model: deepseek(config.model), maxOutputTokens: 4_000, ...(pricing ? { pricing } : {}) },
+            default: {
+              model: deepseek(config.model),
+              // Thinking mode (on by default for deepseek-flash) is off: the tasks are short
+              // structured answers checked by a schema, which come back in seconds without it.
+              providerOptions: { deepseek: { thinking: { type: 'disabled' } } },
+              maxOutputTokens: 2_000,
+              ...(pricing ? { pricing } : {}),
+            },
           },
-          defaults: { timeout: '60s', retry: { attempts: 3 } },
+          defaults: { timeout: '30s', retry: { attempts: 3 } },
           // Counts and cost only: prompts and answers carry sheet contents.
           onUsage: (event) =>
             usageLogger.log('LLM call', {

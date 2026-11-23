@@ -56,6 +56,8 @@ describe('Google Sheets through the bot', () => {
     expect(harness.buttons().map((button) => button.text)).toEqual(['✅ Добавить', 'Отмена']);
     expect(testApp.llm.calls).toHaveLength(1);
     expect(testApp.llm.lastCall?.lastUserMessage).not.toMatch(/https?:\/\//);
+    // DeepseekModule turns deepseek-flash's thinking mode off for these short structured answers.
+    expect(testApp.llm.lastCall?.options.providerOptions).toMatchObject({ deepseek: { thinking: { type: 'disabled' } } });
   });
 
   it('adds the sheet as its own calendar and syncs it later without asking the model again', async () => {
