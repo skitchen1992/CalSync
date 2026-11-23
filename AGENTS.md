@@ -36,6 +36,9 @@ Detailed coding rules for this repo live in `.agents/rules/*.md` (plain Markdown
 - `docker compose up -d`: local PostgreSQL on port 5433. Copy `.env.example` to `.env`, then
   `npm run start:dev`.
 - `npm run db:generate` / `npm run db:migrate`: create and apply Drizzle migrations (`drizzle/`).
+- Production: `Dockerfile` + `deploy/compose.yaml` (PostgreSQL, a `migrate` step, the app; no
+  public ports). Server steps in `deploy/README.md`; `deploy/check-access.sh` checks that the
+  server can reach Telegram, Google, DeepSeek and the registries.
 
 **Before creating or modifying files, read the rule files whose glob patterns match the files you
 are working on.** Read `100-architecture.md` first for any non-trivial change in `src/`.

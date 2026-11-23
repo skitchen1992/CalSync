@@ -4,6 +4,9 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# Database dumps made by deploy/backup.sh on the server
+deploy/backups/
+
 # Local environment (secrets) — .env.example is the committed template
 .env
 .env.*

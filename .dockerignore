@@ -1,0 +1,12 @@
+# Only what the Dockerfile copies matters; keep secrets and bulky folders out of the build context.
+node_modules
+dist
+coverage
+*.tsbuildinfo
+.env
+.env.*
+.git
+.claude
+.agents
+test
+deploy

@@ -1,0 +1,58 @@
+# CalSync on one server: PostgreSQL, a one-off migration step and the app (see README.md here).
+#   cd deploy && docker compose up -d --build
+# Nothing is published to the internet: the bot uses Telegram long polling, and the app port is
+# bound to the server's localhost only (Google sign-in goes through an SSH tunnel).
+name: calsync-prod
+
+x-database-url: &database-url postgres://calsync:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@postgres:5432/calsync
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: calsync
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: calsync
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U calsync -d calsync']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: &logging
+      driver: json-file
+      options: { max-size: 10m, max-file: '5' }
+
+  # Applies pending Drizzle migrations, then exits; the app starts only after it succeeded.
+  migrate:
+    build: { context: .., target: build }
+    command: ['npx', 'drizzle-kit', 'migrate']
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: 'no'
+    logging: *logging
+
+  app:
+    build: { context: .., target: runtime }
+    restart: unless-stopped
+    # tini as PID 1: forwards SIGTERM so the app's shutdown hooks run on `docker compose down`.
+    init: true
+    env_file: .env
+    environment:
+      DATABASE_URL: *database-url
+      NODE_ENV: production
+      PORT: '3100'
+      LOG_FORMAT: json
+      TZ: UTC
+    ports:
+      - '127.0.0.1:3100:3100'
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    logging: *logging
+
+volumes:
+  pgdata:
