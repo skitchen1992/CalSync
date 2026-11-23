@@ -129,7 +129,8 @@ docker compose up -d --build
 crontab -e
 ```
 
-Добавь строку (дамп каждый день в 03:30 UTC, хранится 14 дней):
+Добавь строку (дамп каждый день в 03:30 по часовому поясу сервера — у Sprintbox это Москва;
+дампы хранятся 14 дней):
 
 ```
 30 3 * * * /opt/calsync/deploy/backup.sh >> /var/log/calsync-backup.log 2>&1
